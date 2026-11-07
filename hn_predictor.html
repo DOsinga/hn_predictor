@@ -1,0 +1,160 @@
+<script type="text/markdown" id="info">
+name: Hacker News Predictor
+description: >
+  Predicts Hacker News submission scores from the two fields submitters control:
+  title and URL. The first phase collects historical HN stories and their final
+  scores into a local SQLite training set.
+type: ai
+github: hn_predictor
+files:
+  - [collect_hn.py, "Historical Hacker News submission collector"]
+  - [annotate_frontpage.py, "HN daily front-page label backfill"]
+  - [train_model.py, "Small local neural trainer"]
+  - [train_pretrained_embedder.py, "Pretrained text embedder trainer"]
+  - [train_frontpage_classifier.py, "Daily front-page classifier"]
+</script>
+
+<style>
+  .hnp { color: #222; }
+  .hnp-form {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.8em;
+    margin: 1em 0 1.4em;
+  }
+  .hnp-form label { display: grid; gap: 0.25em; font-weight: 600; }
+  .hnp-form input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 0.55em 0.65em;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    font: inherit;
+  }
+  .hnp-form button {
+    justify-self: start;
+    padding: 0.55em 1em;
+    border: 1px solid #e85d00;
+    border-radius: 4px;
+    background: #ff6600;
+    color: white;
+    font: inherit;
+    font-weight: 600;
+  }
+  .hnp-note {
+    margin: 0 0 1.4em;
+    color: #666;
+    line-height: 1.45;
+  }
+  .hnp-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 0.8em;
+    margin: 1em 0 1.4em;
+  }
+  .hnp-stat {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 0.75em;
+    background: #fafafa;
+  }
+  .hnp-stat b { display: block; font-size: 1.35em; line-height: 1.2; }
+  .hnp-stat span { color: #666; font-size: 0.9em; }
+  .hnp-code {
+    overflow-x: auto;
+    padding: 0.8em;
+    border-radius: 4px;
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+  }
+  .hnp-model {
+    margin: 1.2em 0;
+    padding-top: 0.3em;
+  }
+</style>
+
+<div class="hnp">
+  <p>
+    Hacker News submitters get two levers before the crowd takes over: the
+    title and the URL. This project is setting up a prediction model around
+    exactly those inputs.
+  </p>
+
+  <form class="hnp-form">
+    <label>
+      Title
+      <input name="title" placeholder="Show HN: A thing I built">
+    </label>
+    <label>
+      URL
+      <input name="url" placeholder="https://example.com/my-project">
+    </label>
+    <button type="button" disabled>Predict score</button>
+  </form>
+
+  <p class="hnp-note">
+    The prediction button is intentionally disabled until there is a trained
+    model wired into the page. The current model path is a small local embedding
+    network trained on title and URL text, with <code>log1p(points)</code> as
+    the target. The strongest current version uses a frozen pretrained English
+    text embedder plus a small neural regression head.
+  </p>
+
+  {% if stats.exists %}
+    <div class="hnp-stats">
+      <div class="hnp-stat"><b>{{ stats.stories }}</b><span>stories collected</span></div>
+      <div class="hnp-stat"><b>{{ stats.oldest }}</b><span>oldest story</span></div>
+      <div class="hnp-stat"><b>{{ stats.newest }}</b><span>newest story</span></div>
+      <div class="hnp-stat"><b>{{ stats.avg_points }}</b><span>average points</span></div>
+      <div class="hnp-stat"><b>{{ stats.max_points }}</b><span>top score</span></div>
+    </div>
+  {% else %}
+    <p class="hnp-note">
+      No local collection database exists yet. Start with a bounded crawl:
+    </p>
+  {% endif %}
+
+  <pre class="hnp-code"><code>python projects/hn_predictor/collect_hn.py --max-items 5000</code></pre>
+
+  <div class="hnp-model">
+    <p class="hnp-note">
+      Train the first local model:
+    </p>
+    <pre class="hnp-code"><code>python projects/hn_predictor/train_model.py</code></pre>
+    <p class="hnp-note">
+      Or train the pretrained text-embedder version:
+    </p>
+    <pre class="hnp-code"><code>python projects/hn_predictor/train_pretrained_embedder.py</code></pre>
+    <p class="hnp-note">
+      Backfill HN daily front-page labels, then train the classifier:
+    </p>
+    <pre class="hnp-code"><code>python projects/hn_predictor/annotate_frontpage.py
+python projects/hn_predictor/train_frontpage_classifier.py --device mps</code></pre>
+    {% if model.exists %}
+      <div class="hnp-stats">
+        <div class="hnp-stat"><b>{{ model.label }}</b><span>current model</span></div>
+        {% if model.embedding_dimension %}
+          <div class="hnp-stat"><b>{{ model.embedding_dimension }}</b><span>embedding dimensions</span></div>
+        {% endif %}
+        <div class="hnp-stat"><b>{{ model.rows }}</b><span>training rows</span></div>
+        <div class="hnp-stat"><b>{{ model.epochs_ran }}</b><span>epochs run</span></div>
+        <div class="hnp-stat"><b>{{ model.log_rmse }}</b><span>validation log RMSE</span></div>
+        <div class="hnp-stat"><b>{{ model.log_mae }}</b><span>validation log MAE</span></div>
+        <div class="hnp-stat"><b>{{ model.median_factor_error }}</b><span>median factor error</span></div>
+      </div>
+    {% endif %}
+    {% if frontpage_model.exists %}
+      <p class="hnp-note">
+        Current front-page classifier:
+      </p>
+      <div class="hnp-stats">
+        <div class="hnp-stat"><b>{{ frontpage_model.roc_auc }}</b><span>ROC AUC</span></div>
+        <div class="hnp-stat"><b>{{ frontpage_model.average_precision }}</b><span>average precision</span></div>
+        <div class="hnp-stat"><b>{{ frontpage_model.base_rate }}</b><span>base rate</span></div>
+        <div class="hnp-stat"><b>{{ frontpage_model.precision_at_50 }}</b><span>precision @ 50</span></div>
+        <div class="hnp-stat"><b>{{ frontpage_model.precision_at_100 }}</b><span>precision @ 100</span></div>
+        <div class="hnp-stat"><b>{{ frontpage_model.validation_positives }}</b><span>validation positives</span></div>
+      </div>
+    {% endif %}
+  </div>
+</div>
